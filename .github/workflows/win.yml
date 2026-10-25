@@ -1,0 +1,43 @@
+name: Build UMS Windows
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "رقم إصدار النظام (مثل 5.14.0) كما في package.json"
+        required: true
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Build
+        env:
+          VER: ${{ inputs.version }}
+          DISC: ${{ secrets.DISCOVERY_URL }}
+        run: |
+          set -e
+          [ -n "$DISC" ] || { echo "::error::ناقص السر DISCOVERY_URL"; exit 1; }
+          echo "::add-mask::$DISC"
+          URL=$(curl -fsS -m 20 "$DISC" | tr -d '[:space:]')
+          echo "::add-mask::$URL"
+          case "$URL" in https://*) ;; *) echo "::error::ملف الاكتشاف لا يحوي عنواناً صالحاً"; exit 1;; esac
+          cd windows
+          URL="$URL" node -e 'const fs=require("fs");fs.writeFileSync("config.json",JSON.stringify({serverUrl:process.env.URL,discoveryUrl:process.env.DISC,version:process.env.VER}));const p=require("./package.json");p.version=process.env.VER;fs.writeFileSync("package.json",JSON.stringify(p,null,2))'
+          npm install --no-audit --no-fund
+          npx electron-builder --win nsis --x64 --publish never
+          cp dist/UMS-Setup.exe "$GITHUB_WORKSPACE/UMS-Setup.exe"
+      - uses: actions/upload-artifact@v4
+        with: { name: UMS-windows, path: UMS-Setup.exe, retention-days: 30 }
+      - name: نشر الإصدار
+        env: { GH_TOKEN: "${{ github.token }}", VER: "${{ inputs.version }}" }
+        run: |
+          set -e
+          printf '%s' "$VER" > win-version.txt
+          gh release delete windows-latest --yes --cleanup-tag || true
+          gh release create windows-latest UMS-Setup.exe win-version.txt --title "UMS Windows $VER" --notes "إصدار ويندوز $VER"
+umsadmin@ums-server:~$ 
