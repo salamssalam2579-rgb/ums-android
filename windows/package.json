@@ -1,0 +1,18 @@
+{
+  "name": "ums-windows",
+  "productName": "UMS",
+  "version": "0.0.0",
+  "description": "UMS — غلاف سطح المكتب لنظام إدارة التوجيهات وطلبات المواقع",
+  "main": "main.js",
+  "author": "UMS",
+  "license": "UNLICENSED",
+  "devDependencies": { "electron": "33.2.1", "electron-builder": "25.1.8" },
+  "build": {
+    "appId": "org.ums.desktop",
+    "productName": "UMS",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "config.json", "error.html", "package.json"],
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png", "artifactName": "UMS-Setup.${ext}" },
+    "nsis": { "oneClick": true, "perMachine": false, "allowToChangeInstallationDirectory": false, "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "UMS" }
+  }
+}
