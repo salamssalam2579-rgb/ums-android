@@ -40,4 +40,3 @@ jobs:
           printf '%s' "$VER" > win-version.txt
           gh release delete windows-latest --yes --cleanup-tag || true
           gh release create windows-latest UMS-Setup.exe win-version.txt --title "UMS Windows $VER" --notes "إصدار ويندوز $VER"
-umsadmin@ums-server:~$ 
