@@ -1,0 +1,54 @@
+name: Build UMS APK
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "رقم إصدار النظام (مثل 5.9.2) كما في package.json"
+        required: true
+      server_url:
+        description: "عنوان النظام الحالي (https://...)"
+        required: true
+      discovery_url:
+        description: "رابط ملف الاكتشاف (Gist raw) أو اتركه فارغاً"
+        required: false
+        default: ""
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" >/dev/null
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.5" }
+      - name: Signing key (created once, then reused so updates install over old versions)
+        run: |
+          if [ ! -f keystore/ums.jks ]; then
+            mkdir -p keystore
+            PASS=$(head -c 48 /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 24)
+            echo "$PASS" > keystore/pass.txt
+            keytool -genkeypair -keystore keystore/ums.jks -alias ums -keyalg RSA -keysize 2048 -validity 36500 -storepass "$PASS" -keypass "$PASS" -dname "CN=UMS" >/dev/null
+            git config user.name "ums-build"; git config user.email "ums-build@users.noreply.github.com"
+            git add keystore; git commit -m "signing key"; git push
+          fi
+      - name: Build
+        env:
+          VER: ${{ inputs.version }}
+          URL: ${{ inputs.server_url }}
+          DISC: ${{ inputs.discovery_url }}
+        run: |
+          IFS=. read -r MA MI PA <<<"$VER"; CODE=$((MA*10000+MI*100+PA))
+          cd project
+          gradle --no-daemon assembleRelease -PserverUrl="$URL" -PdiscoveryUrl="$DISC" -Pvcode="$CODE" -Pvname="$VER" \
+            -PksFile="$GITHUB_WORKSPACE/keystore/ums.jks" -PksPass="$(cat "$GITHUB_WORKSPACE/keystore/pass.txt")"
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/UMS.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UMS-apk
+          path: UMS.apk
+          retention-days: 30

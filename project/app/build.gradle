@@ -1,0 +1,28 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'org.ums.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'org.ums.app'
+        minSdk 24
+        targetSdk 34
+        versionCode (project.findProperty('vcode') ?: '1').toInteger()
+        versionName (project.findProperty('vname') ?: '0.0.1')
+        buildConfigField 'String', 'DISCOVERY_URL', "\"${project.findProperty('discoveryUrl') ?: ''}\""
+        buildConfigField 'String', 'SERVER_URL', "\"${project.findProperty('serverUrl') ?: 'http://10.0.2.2:8080'}\""
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        release {
+            storeFile file(project.findProperty('ksFile') ?: 'missing.jks')
+            storePassword (project.findProperty('ksPass') ?: '')
+            keyAlias 'ums'
+            keyPassword (project.findProperty('ksPass') ?: '')
+        }
+    }
+    buildTypes { release { signingConfig signingConfigs.release; minifyEnabled false } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+
+dependencies { implementation 'androidx.core:core:1.12.0' }
