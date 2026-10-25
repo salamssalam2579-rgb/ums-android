@@ -6,7 +6,7 @@ on:
         description: "رقم إصدار النظام (مثل 5.9.2) كما في package.json"
         required: true
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -48,3 +48,12 @@ jobs:
           name: UMS-apk
           path: UMS.apk
           retention-days: 30
+      - name: نشر الإصدار ليلتقطه المخدم تلقائياً
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ inputs.version }}
+        run: |
+          set -e
+          printf '%s' "$VER" > version.txt
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest UMS.apk version.txt --title "UMS $VER" --notes "الإصدار $VER" --latest
