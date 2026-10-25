@@ -36,6 +36,8 @@ jobs:
           case "$URL" in https://*) ;; *) echo "::error::ملف الاكتشاف لا يحوي عنواناً صالحاً"; exit 1;; esac
           printf '%s' "$KS_B64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/ums.jks" || { echo "::error::السر KS_B64 غير صالح أو ناقص: أعد إنشاءه"; exit 1; }
           [ -s "$RUNNER_TEMP/ums.jks" ] && echo "حجم المفتاح: $(wc -c < "$RUNNER_TEMP/ums.jks") بايت"
+          KS_PASS=$(printf '%s' "$KS_PASS" | tr -d '[:space:]')
+          echo "طول كلمة السر: ${#KS_PASS} (المتوقع 24)"
           IFS=. read -r MA MI PA <<<"$VER"; CODE=$((MA*10000+MI*100+PA))
           cd project
           gradle --no-daemon assembleRelease -PserverUrl="$URL" -PdiscoveryUrl="$DISC" -Pvcode="$CODE" -Pvname="$VER" \
