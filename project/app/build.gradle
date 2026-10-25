@@ -1,5 +1,12 @@
 plugins { id 'com.android.application' }
 
+def vcodeProp = (project.findProperty('vcode') ?: '1').toString()
+def vnameProp = (project.findProperty('vname') ?: '0.0.1').toString()
+def serverUrlProp = (project.findProperty('serverUrl') ?: 'http://10.0.2.2:8080').toString()
+def discoveryUrlProp = (project.findProperty('discoveryUrl') ?: '').toString()
+def ksFileProp = (project.findProperty('ksFile') ?: 'missing.jks').toString()
+def ksPassProp = (project.findProperty('ksPass') ?: '').toString()
+
 android {
     namespace 'org.ums.app'
     compileSdk 34
@@ -7,22 +14,30 @@ android {
         applicationId 'org.ums.app'
         minSdk 24
         targetSdk 34
-        versionCode (project.findProperty('vcode') ?: '1').toInteger()
-        versionName (project.findProperty('vname') ?: '0.0.1')
-        buildConfigField 'String', 'DISCOVERY_URL', "\"${project.findProperty('discoveryUrl') ?: ''}\""
-        buildConfigField 'String', 'SERVER_URL', "\"${project.findProperty('serverUrl') ?: 'http://10.0.2.2:8080'}\""
+        versionCode = Integer.parseInt(vcodeProp)
+        versionName = vnameProp
+        buildConfigField 'String', 'SERVER_URL', '"' + serverUrlProp + '"'
+        buildConfigField 'String', 'DISCOVERY_URL', '"' + discoveryUrlProp + '"'
     }
     buildFeatures { buildConfig true }
     signingConfigs {
         release {
-            storeFile file(project.findProperty('ksFile') ?: 'missing.jks')
-            storePassword (project.findProperty('ksPass') ?: '')
-            keyAlias 'ums'
-            keyPassword (project.findProperty('ksPass') ?: '')
+            storeFile = file(ksFileProp)
+            storePassword = ksPassProp
+            keyAlias = 'ums'
+            keyPassword = ksPassProp
         }
     }
-    buildTypes { release { signingConfig signingConfigs.release; minifyEnabled false } }
-    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.release
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 }
 
 dependencies { implementation 'androidx.core:core:1.12.0' }
