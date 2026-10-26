@@ -49,28 +49,62 @@ public class MainActivity extends Activity {
         return u;
     }
 
+    private String lastDiscovery = "لم تُجرَ محاولة بعد";
+
+    private String httpText(String url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        c.setUseCaches(false);
+        c.setRequestProperty("Cache-Control", "no-cache");
+        c.setRequestProperty("User-Agent", "ums-android");
+        if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
+        StringBuilder sb = new StringBuilder();
+        try (InputStream in = c.getInputStream()) {
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0 && sb.length() < 65536) sb.append(new String(buf, 0, n, "UTF-8"));
+        }
+        return sb.toString();
+    }
+
+    private String cleanUrl(String t) {
+        String u = t == null ? "" : t.trim();
+        if (!u.startsWith("https://") || u.contains(" ") || u.contains("\n")) return "";
+        while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
+        return u;
+    }
+
+    /** يقرأ العنوان من ملف الاكتشاف؛ إن فشل أو كان قديماً من ذاكرة CDN يجرب واجهة GitHub API. */
+    private String readDiscovery(String d) {
+        String err = "";
+        try {
+            String u = cleanUrl(httpText(d + (d.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis()));
+            if (!u.isEmpty() && !u.equals(serverUrl())) return u;   // عنوان جديد مختلف
+            if (u.isEmpty()) err = "محتوى غير صالح";
+            else lastDiscovery = "ملف الاكتشاف يعطي العنوان الحالي نفسه";
+        } catch (Exception e) { err = String.valueOf(e.getMessage()); }
+        try {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("gist\\.githubusercontent\\.com/([^/]+)/([0-9a-f]+)/raw/([^/?]+)").matcher(d);
+            if (m.find()) {
+                JSONObject j = new JSONObject(httpText("https://api.github.com/gists/" + m.group(2) + "?t=" + System.currentTimeMillis()));
+                String u = cleanUrl(j.getJSONObject("files").getJSONObject(m.group(3)).getString("content"));
+                if (!u.isEmpty()) { if (err.isEmpty()) lastDiscovery = "تم التحقق عبر GitHub API"; return u; }
+            }
+        } catch (Exception e) { if (!err.isEmpty()) err += " / API: " + e.getMessage(); }
+        if (!err.isEmpty()) lastDiscovery = "تعذّرت القراءة: " + err;
+        return "";
+    }
+
     /** يقرأ العنوان الحالي من ملف الاكتشاف (Gist) ويحفظه إن تغيّر. يُرجع true إن تغيّر. يجب استدعاؤه خارج خيط الواجهة. */
     private boolean discover() {
         String d = BuildConfig.DISCOVERY_URL;
-        if (d == null || d.isEmpty()) return false;
-        try {
-            HttpURLConnection c = (HttpURLConnection) new URL(d + (d.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis()).openConnection();
-            c.setConnectTimeout(8000);
-            c.setReadTimeout(8000);
-            if (c.getResponseCode() != 200) return false;
-            StringBuilder sb = new StringBuilder();
-            try (InputStream in = c.getInputStream()) {
-                byte[] buf = new byte[512];
-                int n;
-                while ((n = in.read(buf)) > 0 && sb.length() < 512) sb.append(new String(buf, 0, n, "UTF-8"));
-            }
-            String u = sb.toString().trim();
-            if (!u.startsWith("https://") || u.contains(" ") || u.contains("\n")) return false;
-            while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
-            if (u.equals(serverUrl())) return false;
-            getSharedPreferences("ums", MODE_PRIVATE).edit().putString("server", u).apply();
-            return true;
-        } catch (Exception e) { return false; }
+        if (d == null || d.isEmpty()) { lastDiscovery = "ملف الاكتشاف غير مضبوط في هذه النسخة"; return false; }
+        String u = readDiscovery(d);
+        if (u.isEmpty() || u.equals(serverUrl())) return false;
+        getSharedPreferences("ums", MODE_PRIVATE).edit().putString("server", u).apply();
+        lastDiscovery = "تم العثور على عنوان جديد";
+        return true;
     }
 
     @Override
@@ -175,7 +209,7 @@ public class MainActivity extends Activity {
     private void showErrorDialog() {
         runOnUiThread(() -> new AlertDialog.Builder(this)
             .setTitle("تعذر الاتصال بالمخدم")
-            .setMessage("تحقق من الإنترنت أو من اتصال VPN (Tailscale) ثم أعد المحاولة.\n\nالعنوان الحالي:\n" + serverUrl())
+            .setMessage("تحقق من الإنترنت ثم أعد المحاولة. إن استمر الخطأ فربما تغيّر عنوان النظام بعد إعادة تشغيل المخدم.\n\nالعنوان الحالي:\n" + serverUrl() + "\n\nآخر فحص للعنوان الجديد:\n" + lastDiscovery)
             .setCancelable(false)
             .setPositiveButton("إعادة المحاولة", (d, w) -> { errorShown = false; web.loadUrl(serverUrl() + "/"); })
             .setNeutralButton("تغيير العنوان", (d, w) -> askServer())
