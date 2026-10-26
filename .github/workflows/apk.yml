@@ -1,10 +1,12 @@
 name: Build UMS APK
 on:
+  push:
+    paths: [ "project/**", "ums-version.txt" ]
   workflow_dispatch:
     inputs:
       version:
-        description: "رقم إصدار النظام (مثل 5.9.2) كما في package.json"
-        required: true
+        description: "اختياري: رقم الإصدار، وإن تُرك فارغاً يُقرأ من ums-version.txt"
+        required: false
 permissions:
   contents: write
 jobs:
@@ -12,6 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: رقم الإصدار
+        run: |
+          V="${{ inputs.version }}"
+          [ -n "$V" ] || V=$(tr -d '[:space:]' < ums-version.txt)
+          case "$V" in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::رقم إصدار غير صالح: $V"; exit 1;; esac
+          echo "VER=$V" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: "17" }
       - name: Android SDK (مثبّت مسبقاً على الخادم، نضيف الحزم المطلوبة فقط)
@@ -23,7 +31,7 @@ jobs:
         with: { gradle-version: "8.5" }
       - name: Build
         env:
-          VER: ${{ inputs.version }}
+          VER: ${{ env.VER }}
           DISC: ${{ secrets.DISCOVERY_URL }}
           KS_B64: ${{ secrets.KS_B64 }}
           KS_PASS: ${{ secrets.KS_PASS }}
@@ -51,7 +59,7 @@ jobs:
       - name: نشر الإصدار ليلتقطه المخدم تلقائياً
         env:
           GH_TOKEN: ${{ github.token }}
-          VER: ${{ inputs.version }}
+          VER: ${{ env.VER }}
         run: |
           set -e
           printf '%s' "$VER" > version.txt
