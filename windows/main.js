@@ -17,29 +17,31 @@ function serverUrl() {
 function saveServer(u) { fs.mkdirSync(app.getPath("userData"), { recursive: true }); fs.writeFileSync(userFile(), JSON.stringify({ server: clean(u) })); }
 
 // يقرأ العنوان الحالي من ملف الاكتشاف ويحفظه إن تغيّر. true إن تغيّر.
+let lastDiscovery = "لم تُجرَ محاولة بعد";
 async function discover() {
   const d = cfg.discoveryUrl;
-  if (!d) return false;
+  if (!d) { lastDiscovery = "ملف الاكتشاف غير مضبوط في هذه النسخة"; return false; }
   try {
-    const r = await net.fetch(d + (d.includes("?") ? "&" : "?") + "t=" + Date.now(), { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return false;
+    const r = await net.fetch(d + (d.includes("?") ? "&" : "?") + "t=" + Date.now(), { signal: AbortSignal.timeout(10000), headers: { "cache-control": "no-cache" } });
+    if (!r.ok) { lastDiscovery = "تعذّرت قراءة ملف الاكتشاف (HTTP " + r.status + ")"; return false; }
     const u = clean((await r.text()).slice(0, 512));
-    if (!u.startsWith("https://") || /\s/.test(u) || u === serverUrl()) return false;
-    saveServer(u);
-    return true;
-  } catch { return false; }
+    if (!u.startsWith("https://") || /\s/.test(u)) { lastDiscovery = "محتوى ملف الاكتشاف غير صالح"; return false; }
+    if (u === serverUrl()) { lastDiscovery = "العنوان في ملف الاكتشاف هو نفسه الحالي"; return false; }
+    saveServer(u); lastDiscovery = "تم العثور على عنوان جديد"; return true;
+  } catch (e) { lastDiscovery = "تعذّر الوصول إلى ملف الاكتشاف: " + (e && e.message ? e.message : e); return false; }
 }
 
 let win = null, errorShown = false;
 const sameHost = (u) => { try { return new URL(u).host === new URL(serverUrl()).host; } catch { return false; } };
 
+async function retry() { await discover(); load(); }
 function load() { errorShown = false; win.loadURL(serverUrl() + "/"); }
 
 async function onFail() {
   if (errorShown || !win) return;
   errorShown = true;
   if (await discover()) { load(); return; }
-  win.loadFile(path.join(__dirname, "error.html"), { query: { url: serverUrl() } });
+  win.loadFile(path.join(__dirname, "error.html"));
 }
 
 function createWindow() {
@@ -52,6 +54,9 @@ function createWindow() {
   const wc = win.webContents;
   wc.setUserAgent(wc.getUserAgent() + " UMSApp/" + cfg.version + " UMSWindows");
   wc.on("did-fail-load", (_e, code, _d, url, main) => { if (main && code !== -3 && !url.startsWith("file:")) onFail(); });
+  // نفق منتهٍ يردّ 530 لا خطأ شبكة: نعامله كانقطاع ونعيد قراءة العنوان
+  wc.on("did-navigate", (_e, url, code) => { if (code >= 500 && !url.startsWith("file:")) onFail(); });
+  win.on("focus", () => { if (errorShown) retry(); });
   wc.on("did-finish-load", () => { errorShown = false; });
   // الروابط الخارجية في المتصفح الافتراضي، وروابط النظام داخل النافذة
   wc.setWindowOpenHandler(({ url }) => { if (sameHost(url)) return { action: "allow" }; if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
@@ -68,7 +73,8 @@ function createWindow() {
 
 // أوامر صفحة الخطأ
 const { ipcMain } = require("electron");
-ipcMain.on("ums:retry", () => load());
+ipcMain.on("ums:retry", () => { retry(); });
+ipcMain.handle("ums:last-discovery", () => lastDiscovery);
 ipcMain.on("ums:close", () => app.quit());
 ipcMain.handle("ums:get-server", () => serverUrl());
 ipcMain.handle("ums:set-server", (_e, u) => { u = clean(u); if (!okUrl(u)) return false; saveServer(u); load(); return true; });
@@ -79,7 +85,7 @@ else {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     createWindow();
-    setInterval(() => { if (win && errorShown) load(); }, 60000); // إعادة محاولة صامتة كل دقيقة أثناء ظهور الخطأ
+    setInterval(() => { if (win && errorShown) retry(); }, 60000); // إعادة محاولة صامتة كل دقيقة أثناء ظهور الخطأ
   });
   app.on("window-all-closed", () => app.quit());
 }

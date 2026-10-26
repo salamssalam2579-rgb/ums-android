@@ -6,11 +6,12 @@ button{font:inherit;padding:9px 18px;border-radius:8px;border:1px solid #9aa7b8;
 input{width:100%;box-sizing:border-box;font:inherit;padding:8px;direction:ltr;margin:8px 0}#u{direction:ltr;word-break:break-all;color:#555}</style></head><body><div class="c">
 <h2>تعذر الاتصال بالمخدم</h2><p>تحقق من الإنترنت أو من اتصال VPN ثم أعد المحاولة. تتم إعادة المحاولة تلقائياً كل دقيقة.</p><p>العنوان الحالي:</p><div id="u"></div>
 <div id="chg" hidden><input id="in" placeholder="https://..."><button class="p" id="save">حفظ وفتح</button></div>
-<p><button class="p" id="r">إعادة المحاولة</button><button id="c">تغيير العنوان</button><button id="x">إغلاق</button></p><p id="m" style="color:#b00"></p></div>
+<p><button class="p" id="r">إعادة المحاولة</button><button id="c">تغيير العنوان</button><button id="x">إغلاق</button></p><p id="m" style="color:#b00"></p><p id="d" style="color:#555;font-size:.9rem"></p></div>
 <script>
 const $=(i)=>document.getElementById(i);
 window.UMSDesktop.getServer().then(u=>{$("u").textContent=u;$("in").value=u});
-$("r").onclick=()=>window.UMSDesktop.retry();$("x").onclick=()=>window.UMSDesktop.close();
+window.UMSDesktop.lastDiscovery().then(t=>{$("d").textContent="آخر فحص للعنوان: "+t});
+$("r").onclick=()=>{$("d").textContent="جارٍ فحص العنوان…";window.UMSDesktop.retry()};$("x").onclick=()=>window.UMSDesktop.close();
 $("c").onclick=()=>{$("chg").hidden=false};
 $("save").onclick=async()=>{const ok=await window.UMSDesktop.setServer($("in").value);if(!ok)$("m").textContent="يجب أن يبدأ العنوان بـ https://"};
 </script></body></html>
