@@ -18,29 +18,36 @@ function saveServer(u) { fs.mkdirSync(app.getPath("userData"), { recursive: true
 
 // يقرأ العنوان الحالي من ملف الاكتشاف ويحفظه إن تغيّر. true إن تغيّر.
 let lastDiscovery = "لم تُجرَ محاولة بعد";
+async function reachable(u) {
+  try { const r = await net.fetch(u + "/api/health", { signal: AbortSignal.timeout(8000), headers: { "cache-control": "no-cache" } }); return r.ok && (await r.text()).includes('"ok":true'); } catch { return false; }
+}
 async function discover() {
-  const d = cfg.discoveryUrl;
+  let d = cfg.discoveryUrl;
   if (!d) { lastDiscovery = "ملف الاكتشاف غير مضبوط في هذه النسخة"; return false; }
+  // رابط Raw المنسوخ من GitHub يحمل رقم مراجعة ثابتاً فيعطي العنوان القديم دائماً: نحذفه ليقرأ الأحدث
+  d = d.replace(/(gist\.githubusercontent\.com\/[^/]+\/[0-9a-f]+\/raw\/)[0-9a-f]{40}\//, "$1");
   const ok = (t) => { const u = clean(String(t || "").slice(0, 512)); return u.startsWith("https://") && !/\s/.test(u) ? u : ""; };
-  let err = "", u = "";
+  const cands = []; let err = "";
   try {
     const r = await net.fetch(d + (d.includes("?") ? "&" : "?") + "t=" + Date.now(), { signal: AbortSignal.timeout(10000), headers: { "cache-control": "no-cache" } });
-    if (!r.ok) err = "HTTP " + r.status; else { u = ok(await r.text()); if (!u) err = "محتوى غير صالح"; }
+    if (!r.ok) err = "HTTP " + r.status; else { const u = ok(await r.text()); if (u) cands.push(u); else err = "محتوى غير صالح"; }
   } catch (e) { err = e && e.message ? e.message : String(e); }
-  // إن فشلت القراءة أو أعطت العنوان الحالي (قد تكون نسخة قديمة من ذاكرة CDN) نتحقق عبر GitHub API
-  if (!u || u === serverUrl()) {
-    const m = /gist\.githubusercontent\.com\/([^/]+)\/([0-9a-f]+)\/raw\/([^/?]+)/.exec(d);
-    if (m) {
-      try {
-        const r = await net.fetch("https://api.github.com/gists/" + m[2] + "?t=" + Date.now(), { signal: AbortSignal.timeout(10000), headers: { "cache-control": "no-cache", "user-agent": "ums-windows" } });
-        if (r.ok) { const j = await r.json(); const v = ok(j && j.files && j.files[m[3]] && j.files[m[3]].content); if (v) u = v; }
-        else if (!u) err += " / API HTTP " + r.status;
-      } catch (e) { if (!u) err += " / API: " + (e && e.message ? e.message : e); }
-    }
+  // احتياط: واجهة GitHub API لا تمر بذاكرة CDN المؤقتة
+  const m = /gist\.githubusercontent\.com\/([^/]+)\/([0-9a-f]+)\/raw\/([^/?]+)/.exec(d);
+  if (m) {
+    try {
+      const r = await net.fetch("https://api.github.com/gists/" + m[2] + "?t=" + Date.now(), { signal: AbortSignal.timeout(10000), headers: { "cache-control": "no-cache", "user-agent": "ums-windows" } });
+      if (r.ok) { const j = await r.json(); const v = ok(j && j.files && j.files[m[3]] && j.files[m[3]].content); if (v && !cands.includes(v)) cands.push(v); }
+    } catch (e) { if (!cands.length) err += " / API: " + (e && e.message ? e.message : e); }
   }
-  if (!u) { lastDiscovery = "تعذّرت قراءة ملف الاكتشاف: " + err; return false; }
-  if (u === serverUrl()) { lastDiscovery = "العنوان في ملف الاكتشاف هو نفسه الحالي"; return false; }
-  saveServer(u); lastDiscovery = "تم العثور على عنوان جديد"; return true;
+  if (!cands.length) { lastDiscovery = "تعذّرت قراءة ملف الاكتشاف: " + err; return false; }
+  const cur = serverUrl();
+  for (const u of cands) {
+    if (u === cur) { lastDiscovery = "العنوان في ملف الاكتشاف هو نفسه الحالي"; continue; }
+    if (!(await reachable(u))) { lastDiscovery = "العنوان في ملف الاكتشاف لا يستجيب (" + u + ")، فلم أبدّل عنوانك"; continue; }
+    saveServer(u); lastDiscovery = "تم العثور على عنوان جديد"; return true;
+  }
+  return false;
 }
 
 let win = null, errorShown = false;
