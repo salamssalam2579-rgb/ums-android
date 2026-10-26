@@ -21,14 +21,26 @@ let lastDiscovery = "لم تُجرَ محاولة بعد";
 async function discover() {
   const d = cfg.discoveryUrl;
   if (!d) { lastDiscovery = "ملف الاكتشاف غير مضبوط في هذه النسخة"; return false; }
+  const ok = (t) => { const u = clean(String(t || "").slice(0, 512)); return u.startsWith("https://") && !/\s/.test(u) ? u : ""; };
+  let err = "", u = "";
   try {
     const r = await net.fetch(d + (d.includes("?") ? "&" : "?") + "t=" + Date.now(), { signal: AbortSignal.timeout(10000), headers: { "cache-control": "no-cache" } });
-    if (!r.ok) { lastDiscovery = "تعذّرت قراءة ملف الاكتشاف (HTTP " + r.status + ")"; return false; }
-    const u = clean((await r.text()).slice(0, 512));
-    if (!u.startsWith("https://") || /\s/.test(u)) { lastDiscovery = "محتوى ملف الاكتشاف غير صالح"; return false; }
-    if (u === serverUrl()) { lastDiscovery = "العنوان في ملف الاكتشاف هو نفسه الحالي"; return false; }
-    saveServer(u); lastDiscovery = "تم العثور على عنوان جديد"; return true;
-  } catch (e) { lastDiscovery = "تعذّر الوصول إلى ملف الاكتشاف: " + (e && e.message ? e.message : e); return false; }
+    if (!r.ok) err = "HTTP " + r.status; else { u = ok(await r.text()); if (!u) err = "محتوى غير صالح"; }
+  } catch (e) { err = e && e.message ? e.message : String(e); }
+  // إن فشلت القراءة أو أعطت العنوان الحالي (قد تكون نسخة قديمة من ذاكرة CDN) نتحقق عبر GitHub API
+  if (!u || u === serverUrl()) {
+    const m = /gist\.githubusercontent\.com\/([^/]+)\/([0-9a-f]+)\/raw\/([^/?]+)/.exec(d);
+    if (m) {
+      try {
+        const r = await net.fetch("https://api.github.com/gists/" + m[2] + "?t=" + Date.now(), { signal: AbortSignal.timeout(10000), headers: { "cache-control": "no-cache", "user-agent": "ums-windows" } });
+        if (r.ok) { const j = await r.json(); const v = ok(j && j.files && j.files[m[3]] && j.files[m[3]].content); if (v) u = v; }
+        else if (!u) err += " / API HTTP " + r.status;
+      } catch (e) { if (!u) err += " / API: " + (e && e.message ? e.message : e); }
+    }
+  }
+  if (!u) { lastDiscovery = "تعذّرت قراءة ملف الاكتشاف: " + err; return false; }
+  if (u === serverUrl()) { lastDiscovery = "العنوان في ملف الاكتشاف هو نفسه الحالي"; return false; }
+  saveServer(u); lastDiscovery = "تم العثور على عنوان جديد"; return true;
 }
 
 let win = null, errorShown = false;
