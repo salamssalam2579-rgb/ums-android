@@ -3,6 +3,8 @@
 const { app, BrowserWindow, Menu, dialog, shell, net, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
+const updater = require("./updater");
 
 let cfg = { serverUrl: "", discoveryUrl: "", version: "0.0.0" };
 try { cfg = { ...cfg, ...JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8")) }; } catch { /* يُستعمل الافتراضي */ }
@@ -90,6 +92,30 @@ function createWindow() {
   discover().then((changed) => { if (changed) load(); });
 }
 
+
+// تحديث ذاتي: يسأل الخادم، فإن وُجد إصدار أحدث يسأل المستخدم ثم ينزّل ويثبّت بصمت ويعيد التشغيل
+let updating = false, declined = "";
+async function checkUpdate() {
+  if (updating || !win || errorShown) return;
+  const base = serverUrl();
+  const info = await updater.check(base, cfg.version, (u, o) => net.fetch(u, o));
+  if (!info || declined === info.version) return;
+  const titles = info.notes.map((n) => "• " + n.title).join("\n");
+  const r = await dialog.showMessageBox(win, { type: "info", buttons: ["تحديث الآن", "لاحقاً"], defaultId: 0, cancelId: 1, title: "تحديث UMS",
+    message: "يتوفر الإصدار " + info.version + " (الحالي " + cfg.version + ")", detail: (titles ? titles + "\n\n" : "") + "سيُنزَّل ويُثبَّت ثم يعاد فتح البرنامج تلقائياً." });
+  if (r.response !== 0) { declined = info.version; return; }
+  updating = true;
+  const oldTitle = win.getTitle(); win.setTitle("UMS — جارٍ تنزيل التحديث...");
+  try {
+    const exe = await updater.download(base, info, path.join(app.getPath("temp"), "ums-update"), (u, o) => net.fetch(u, o));
+    spawn(exe, ["--updated", "/S", "--force-run"], { detached: true, stdio: "ignore" }).unref();
+    setTimeout(() => app.quit(), 800);
+  } catch (e) {
+    updating = false; win.setTitle(oldTitle);
+    dialog.showMessageBox(win, { type: "error", title: "تحديث UMS", message: "تعذّر تنزيل التحديث", detail: String(e && e.message ? e.message : e) + "\nسيُعاد المحاولة لاحقاً." });
+  }
+}
+
 // أوامر صفحة الخطأ
 const { ipcMain } = require("electron");
 ipcMain.on("ums:retry", () => { retry(); });
@@ -105,6 +131,7 @@ else {
     Menu.setApplicationMenu(null);
     createWindow();
     setInterval(() => { if (win && errorShown) retry(); }, 60000); // إعادة محاولة صامتة كل دقيقة أثناء ظهور الخطأ
+    setTimeout(checkUpdate, 20000); setInterval(checkUpdate, 3 * 3600 * 1000); // فحص التحديث بعد التشغيل ثم كل 3 ساعات
   });
   app.on("window-all-closed", () => app.quit());
 }

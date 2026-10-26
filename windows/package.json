@@ -11,7 +11,7 @@
     "appId": "org.ums.desktop",
     "productName": "UMS",
     "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "config.json", "error.html", "package.json"],
+    "files": ["main.js", "updater.js", "preload.js", "config.json", "error.html", "package.json"],
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png", "artifactName": "UMS-Setup.${ext}" },
     "nsis": { "oneClick": true, "perMachine": false, "allowToChangeInstallationDirectory": false, "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "UMS" }
   }
