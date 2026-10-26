@@ -39,7 +39,7 @@ import java.net.URL;
 public class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> chooser;
-    private long lastCheck = 0;
+    private long lastCheck = 0, lastDiscover = 0;
     private boolean errorShown = false;
 
     private String serverUrl() {
@@ -102,6 +102,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onReceivedHttpError(WebView v, WebResourceRequest r, android.webkit.WebResourceResponse e) {
+                // نفق منتهٍ يردّ 530 من Cloudflare لا خطأ شبكة: نعامله كانقطاع ونعيد قراءة العنوان
+                if (r.isForMainFrame() && e.getStatusCode() >= 500) showConnectionError();
+            }
+            @Override
             public void onPageFinished(WebView v, String url) { errorShown = false; }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -154,6 +159,7 @@ public class MainActivity extends Activity {
         super.onResume();
         long now = System.currentTimeMillis();
         if (now - lastCheck > 30 * 60 * 1000L) { lastCheck = now; checkForUpdate(); }
+        if (now - lastDiscover > 60 * 1000L) { lastDiscover = now; new Thread(() -> { if (discover()) runOnUiThread(() -> web.loadUrl(serverUrl() + "/")); }).start(); }
     }
 
     // ---------- أخطاء الاتصال وتغيير العنوان ----------
@@ -195,6 +201,15 @@ public class MainActivity extends Activity {
 
     // ---------- جسر الملفات: تنزيلات الواجهة (PDF، Excel، نسخ احتياطي) ----------
     private class Bridge {
+        /** تستدعيها الواجهة حين تكتشف أن عنوان المخدم تغيّر: تحفظه وتعيد التحميل */
+        @JavascriptInterface
+        public void setServer(String u) {
+            if (u == null) return;
+            final String url = u.trim().replaceAll("/+$", "");
+            if (!url.startsWith("https://") || url.contains(" ") || url.length() > 300) return;
+            getSharedPreferences("ums", MODE_PRIVATE).edit().putString("server", url).apply();
+            runOnUiThread(() -> { errorShown = false; web.loadUrl(serverUrl() + "/"); });
+        }
         @JavascriptInterface
         public void saveFile(String name, String mime, String b64) {
             try {
