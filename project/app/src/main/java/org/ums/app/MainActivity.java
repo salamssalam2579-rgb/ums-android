@@ -75,36 +75,47 @@ public class MainActivity extends Activity {
         return u;
     }
 
-    /** يقرأ العنوان من ملف الاكتشاف؛ إن فشل أو كان قديماً من ذاكرة CDN يجرب واجهة GitHub API. */
-    private String readDiscovery(String d) {
+    /** هل العنوان يخدم النظام فعلاً؟ (لا نتبدّل إلى عنوان ميت أو قديم) */
+    private boolean reachable(String u) {
+        try { return httpText(u + "/api/health").contains("\"ok\":true"); } catch (Exception e) { return false; }
+    }
+
+    /** يجمع العناوان المرشحة: من ملف الاكتشاف ثم من واجهة GitHub API (لا تمر بذاكرة CDN). يزيل رقم المراجعة المثبّت من الرابط. */
+    private java.util.List<String> discoveryCandidates(String d) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        // رابط Raw المنسوخ من GitHub يحمل رقم مراجعة ثابتاً فيعطي العنوان القديم دائماً: نحذفه ليقرأ الأحدث
+        d = d.replaceAll("(gist\\.githubusercontent\\.com/[^/]+/[0-9a-f]+/raw/)[0-9a-f]{40}/", "$1");
         String err = "";
         try {
             String u = cleanUrl(httpText(d + (d.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis()));
-            if (!u.isEmpty() && !u.equals(serverUrl())) return u;   // عنوان جديد مختلف
-            if (u.isEmpty()) err = "محتوى غير صالح";
-            else lastDiscovery = "ملف الاكتشاف يعطي العنوان الحالي نفسه";
+            if (u.isEmpty()) err = "محتوى غير صالح"; else out.add(u);
         } catch (Exception e) { err = String.valueOf(e.getMessage()); }
         try {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("gist\\.githubusercontent\\.com/([^/]+)/([0-9a-f]+)/raw/([^/?]+)").matcher(d);
             if (m.find()) {
                 JSONObject j = new JSONObject(httpText("https://api.github.com/gists/" + m.group(2) + "?t=" + System.currentTimeMillis()));
                 String u = cleanUrl(j.getJSONObject("files").getJSONObject(m.group(3)).getString("content"));
-                if (!u.isEmpty()) { if (err.isEmpty()) lastDiscovery = "تم التحقق عبر GitHub API"; return u; }
+                if (!u.isEmpty() && !out.contains(u)) out.add(u);
             }
         } catch (Exception e) { if (!err.isEmpty()) err += " / API: " + e.getMessage(); }
-        if (!err.isEmpty()) lastDiscovery = "تعذّرت القراءة: " + err;
-        return "";
+        if (out.isEmpty()) lastDiscovery = "تعذّرت القراءة: " + err;
+        return out;
     }
 
-    /** يقرأ العنوان الحالي من ملف الاكتشاف (Gist) ويحفظه إن تغيّر. يُرجع true إن تغيّر. يجب استدعاؤه خارج خيط الواجهة. */
+    /** يقرأ العنوان الحالي من ملف الاكتشاف (Gist) ويحفظه إن كان مختلفاً ويستجيب فعلاً. يُرجع true إن تغيّر. يجب استدعاؤه خارج خيط الواجهة. */
     private boolean discover() {
         String d = BuildConfig.DISCOVERY_URL;
         if (d == null || d.isEmpty()) { lastDiscovery = "ملف الاكتشاف غير مضبوط في هذه النسخة"; return false; }
-        String u = readDiscovery(d);
-        if (u.isEmpty() || u.equals(serverUrl())) return false;
-        getSharedPreferences("ums", MODE_PRIVATE).edit().putString("server", u).apply();
-        lastDiscovery = "تم العثور على عنوان جديد";
-        return true;
+        java.util.List<String> cands = discoveryCandidates(d);
+        String cur = serverUrl();
+        for (String u : cands) {
+            if (u.equals(cur)) { lastDiscovery = "ملف الاكتشاف يعطي العنوان الحالي نفسه"; continue; }
+            if (!reachable(u)) { lastDiscovery = "العنوان في ملف الاكتشاف لا يستجيب (" + u + ")، فلم أبدّل عنوانك"; continue; }
+            getSharedPreferences("ums", MODE_PRIVATE).edit().putString("server", u).apply();
+            lastDiscovery = "تم العثور على عنوان جديد";
+            return true;
+        }
+        return false;
     }
 
     @Override
