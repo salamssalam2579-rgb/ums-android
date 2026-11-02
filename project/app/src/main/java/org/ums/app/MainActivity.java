@@ -12,7 +12,10 @@ import android.provider.Settings;
 import android.util.Base64;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -39,6 +42,7 @@ import java.net.URL;
 public class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> chooser;
+    private PermissionRequest pendingMic;
     private long lastCheck = 0, lastDiscover = 0;
     private boolean errorShown = false;
 
@@ -155,6 +159,21 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView v, String url) { errorShown = false; }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            // الميكروفون لتسجيل التذكيرات الصوتية: لصفحات خادم UMS فقط
+            @Override
+            public void onPermissionRequest(PermissionRequest req) {
+                boolean audioOnly = req.getResources().length > 0;
+                for (String r : req.getResources()) if (!PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) audioOnly = false;
+                Uri o = req.getOrigin(), s = Uri.parse(serverUrl());
+                boolean ours = o != null && s.getHost() != null && s.getHost().equals(o.getHost()) && (s.getScheme() == null || s.getScheme().equals(o.getScheme()));
+                if (!audioOnly || !ours) { req.deny(); return; }
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { req.grant(req.getResources()); return; }
+                if (pendingMic != null) pendingMic.deny();
+                pendingMic = req;
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 8);
+            }
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest req) { if (pendingMic == req) pendingMic = null; }
             @Override
             public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams p) {
                 if (chooser != null) chooser.onReceiveValue(null);
@@ -191,6 +210,15 @@ public class MainActivity extends Activity {
             chooser = null;
         }
         super.onActivityResult(req, res, data);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code == 8 && pendingMic != null) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) pendingMic.grant(pendingMic.getResources()); else pendingMic.deny();
+            pendingMic = null;
+        }
     }
 
     @Override
